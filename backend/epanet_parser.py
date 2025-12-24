@@ -205,29 +205,26 @@ class EPANETParser:
     
     def get_network_topology(self) -> Dict:
         """Get complete network topology for API response"""
-        import random
         
         nodes = []
         # CHANGES TO BE DONE HERE.
         for node in self.nodes.values():
             # Assign risk levels (this would come from ML model in production)
-            risk_score = random.uniform(0, 100)
-            if risk_score > 70:
-                risk_level = "high"
-            elif risk_score > 40:
-                risk_level = "medium"
-            elif risk_score > 20:
-                risk_level = "low"
-            else:
-                risk_level = "none"
+            # risk_score = random.uniform(0, 100)
+            # if risk_score > 70:
+            #     risk_level = "high"
+            # elif risk_score > 40:
+            #     risk_level = "medium"
+            # elif risk_score > 20:
+            #     risk_level = "low"
+            # else:
+            #     risk_level = "none"
             
             nodes.append({
                 "id": node.id,
                 "type": node.type,
                 "coordinates": {"x": node.x, "y": node.y},
                 "elevation": node.elevation,
-                "leak_risk": risk_level,
-                "risk_score": risk_score
             })
         
         pipes = []
