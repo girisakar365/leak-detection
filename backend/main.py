@@ -166,7 +166,7 @@ async def get_leak_predictions():
 async def generate_data(
     node_id: str,
     emitter_cof:float=0.5,
-    collection_start_hour:int=6,
+    collection_start_hour:int=0,
     leak_start_min:int=60,
     leak_duration_hours:int=4
 ):
@@ -175,8 +175,8 @@ async def generate_data(
     """
     try:
         total_pressure = 0
-        sample_minutes = 15
-        sample_duration_hours = 6
+        sample_minutes = 60
+        sample_duration_hours = 24
         inp_path = Path(__file__).parent / "main_network.inp"
         gd = DataGenerator(inp_file = str(inp_path), step_m=sample_minutes, duration_h=sample_duration_hours)
         data = gd.generate_data(

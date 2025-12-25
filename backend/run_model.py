@@ -53,7 +53,7 @@ class PredictLeakLocation:
         return {key: values for key, values in zip(output_means.keys(), denormalized_data)}
 
 
-    def run_test_cases(self, model_path, test_csv, input_columns=HOURLY_NODES, device='cuda'):
+    def run_test_cases(self, model_path, test_csv, input_columns=HOURLY_NODES, device='cpu'):
         """
         Run inference on test cases using the trained model.
 

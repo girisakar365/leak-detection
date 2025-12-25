@@ -1,6 +1,6 @@
 ; Filename: /home/girisakar365/Desktop/leak-detection/backend/main_network.inp
 ; WNTR: 1.4.0
-; Created: 2025-12-25 23:53:59
+; Created: 2025-12-26 00:10:30
 [TITLE]
 output
 
@@ -1961,12 +1961,12 @@ DEMAND CHARGE          0.0000
 ;Tank ID             Model Fraction
 
 [TIMES]
-DURATION             06:00:00
-HYDRAULIC TIMESTEP   00:15:00
+DURATION             24:00:00
+HYDRAULIC TIMESTEP   01:00:00
 QUALITY TIMESTEP     00:05:00
 PATTERN TIMESTEP     01:00:00
 PATTERN START        00:00:00
-REPORT TIMESTEP      00:15:00
+REPORT TIMESTEP      01:00:00
 REPORT START         00:00:00
 START CLOCKTIME      00:00:00 AM
 RULE TIMESTEP        00:06:00

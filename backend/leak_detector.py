@@ -30,7 +30,7 @@ class LeakDetector:
         Get leak predictions for all nodes
         Replace with actual model predictions
         """
-        predictions=Localizer.run_test_cases(model_path="./model/leak_model.pth",test_csv=csv_path)
+        predictions=Localizer.run_test_cases(model_path="./backend/model/leak_model.pth",test_csv=csv_path)
         
         return predictions
     
