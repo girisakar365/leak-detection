@@ -2,6 +2,9 @@ import axios from 'axios';
 
 const API_BASE_URL = 'http://localhost:8000';
 
+// helper that returns a promise that rejects after ms
+const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
+
 class APIService {
   constructor() {
     this.axiosInstance = axios.create({
@@ -15,20 +18,52 @@ class APIService {
 
   /**
    * Get network topology data (nodes and pipes)
-   * @returns {Promise<Object>} { nodes: [], pipes: [], total_nodes, total_pipes, timestamp, system_status }
+   * Returns a normalized object so the frontend can render quickly even on partial responses
    */
   async getNetworkData() {
-    const response = await this.axiosInstance.get('/api/network');
-    return response.data;
+    try {
+      const p = this.axiosInstance.get('/api/network');
+      const response = await Promise.race([p, timeout(8000)]);
+      const d = response.data || {};
+      return {
+        nodes: d.nodes || [],
+        pipes: d.pipes || [],
+        total_nodes: d.total_nodes ?? (d.nodes ? d.nodes.length : 0),
+        total_pipes: d.total_pipes ?? (d.pipes ? d.pipes.length : 0),
+        system_status: d.system_status || 'unknown',
+        timestamp: d.timestamp || new Date().toISOString(),
+      };
+    } catch (err) {
+      console.error('getNetworkData error', err.message || err);
+      return { nodes: [], pipes: [], total_nodes: 0, total_pipes: 0, system_status: 'error', timestamp: new Date().toISOString() };
+    }
   }
 
   /**
    * Get leak predictions
-   * @returns {Promise<Object>} { leak_x: [], leak_y: [], leak_size_lps: [] }
+   * Normalize to { leak_x, leak_y, leak_size_lps, node_id }
    */
   async getLeakPredictions() {
-    const response = await this.axiosInstance.get('/api/leak-predictions');
-    return response.data;
+    try {
+      const p = this.axiosInstance.get('/api/leak-predictions');
+      const response = await Promise.race([p, timeout(8000)]);
+      let preds = response.data;
+
+      // Backend may return array or object. Take first if array.
+      if (Array.isArray(preds) && preds.length > 0) preds = preds[0];
+      preds = preds || {};
+
+      return {
+        leak_x: preds.leak_x || [],
+        leak_y: preds.leak_y || [],
+        leak_size_lps: preds.leak_size_lps || [],
+        node_id: preds.node_id || preds.nodeId || null,
+        timestamp: preds.timestamp || new Date().toISOString()
+      };
+    } catch (err) {
+      console.error('getLeakPredictions error', err.message || err);
+      return { leak_x: [], leak_y: [], leak_size_lps: [], node_id: null, timestamp: new Date().toISOString() };
+    }
   }
 
   /**

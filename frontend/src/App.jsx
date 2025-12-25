@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import SimulationPage from './pages/SimulationPage';
-import ResultsPage from './pages/ResultsPage';
+import ResultsPage from './pages/ResultsPageFixed';
 
 function App() {
   return (
