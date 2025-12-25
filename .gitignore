@@ -1,3 +1,5 @@
 .venv
 *env*
 *Env*
+__pycache__/
+epanet_runs
