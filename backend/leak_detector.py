@@ -6,8 +6,26 @@ Interfaces with ML model to provide leak predictions and monitoring data
 import random
 from datetime import datetime, timedelta
 from typing import List, Dict
+from generate_data import DataGenerator
 import math
 
+sample_minutes = 15
+sample_duration_hours = 6
+gd = DataGenerator(inp_file ="PATTERN.inp", step_m=sample_minutes, duration_h=sample_duration_hours)
+
+label_prefix = gd.get_resolution_label(sample_minutes=sample_minutes)
+generated_data = gd.generate_data(
+    "NODE_467",
+    emitter_cof=0.5,
+    collection_start_hour=6,
+    leak_start_min=60,
+    leak_duration_hours=4
+)
+total_pressure = 0
+pressureColumns=[key for key in generated_data.keys() if key.startswith("NODE")]
+for column in pressureColumns:
+    total_pressure = generated_data[column] + total_pressure
+average_pressure = total_pressure / len(pressureColumns)
 
 class LeakDetector:
     """
@@ -57,67 +75,32 @@ class LeakDetector:
         
         return predictions
     
-    def get_pressure_history(self, node_id: str, hours: int = 24) -> List[Dict]:
+    def get_pressure_history(self, node_id: str) -> List[Dict]:
         """
         Get historical pressure data for a node
         Returns time series data for the specified number of hours
         """
-        data = []
-        base_pressure = 50 + random.uniform(-10, 10)
-        
-        # Generate hourly data points
-        for i in range(hours):
-            timestamp = datetime.now() - timedelta(hours=hours-i)
-            
-            # Simulate pressure variation with some noise
-            variation = math.sin(i * 0.5) * 5 + random.uniform(-2, 2)
-            
-            # Add anomaly for leak simulation
-            if i > hours * 0.7 and random.random() > 0.8:
-                variation -= random.uniform(5, 15)
-            
-            pressure = max(0, base_pressure + variation)
-            
+        data=[]
+        column_names=[]
+        for i in range(int(sample_duration_hours*60/sample_minutes)):
+            column_names.append(f"{node_id}_{label_prefix}{i}")
+
+        for column in column_names:
             data.append({
-                "timestamp": timestamp.isoformat(),
-                "pressure": round(pressure, 2)
-            })
-        
+                column: generated_data[column]
+            })        
         return data
     
-    def get_demand_comparison(self, node_id: str) -> Dict:
+    def get_demand_comparison(self) -> Dict:
         """
         Get base demand vs actual demand comparison
         Returns recent time series for demand analysis
         """
-        data_points = []
-        base_demand = 100 + random.uniform(-20, 20)
-        
-        # Generate 24 hours of data
-        for i in range(24):
-            timestamp = datetime.now() - timedelta(hours=24-i)
-            
-            # Simulate demand pattern (higher during day, lower at night)
-            hour = timestamp.hour
-            time_factor = 1.0 + 0.3 * math.sin((hour - 6) * math.pi / 12)
-            
-            # Add noise and potential leak indicator
-            noise = random.uniform(-5, 5)
-            leak_indicator = random.uniform(10, 30) if i > 18 and random.random() > 0.7 else 0
-            
-            actual = base_demand * time_factor + noise + leak_indicator
-            
-            data_points.append({
-                "timestamp": timestamp.isoformat(),
-                "base_demand": round(base_demand * time_factor, 2),
-                "actual_demand": round(actual, 2)
-            })
-        
-        return {
-            "node_id": node_id,
-            "data": data_points,
-            "unit": "GPM"
-        }
+        # to do add base demand logic
+        demand_dic= generated_data["leak_demand_time"]
+
+        return demand_dic
+    
     
     def get_network_statistics(self) -> Dict:
         """
@@ -126,11 +109,7 @@ class LeakDetector:
         return {
             "total_nodes": random.randint(50, 200),
             "active_pipes": random.randint(80, 300),
-            "high_risk_nodes": random.randint(2, 10),
-            "medium_risk_nodes": random.randint(5, 20),
-            "low_risk_nodes": random.randint(10, 30),
-            "average_pressure": round(random.uniform(40, 60), 2),
-            "total_flow": round(random.uniform(1000, 5000), 2),
+            "average_pressure": average_pressure,
             "last_updated": datetime.now().isoformat(),
             "system_status": "operational"
         }

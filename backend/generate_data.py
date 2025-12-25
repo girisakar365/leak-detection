@@ -146,6 +146,7 @@ class DataGenerator():
 
             # Collect leak-node pressure during leak window for leak_size calculation
             leak_press_series = []
+            leak_demand_series = []
 
             t = 0
             started = False
@@ -184,7 +185,9 @@ class DataGenerator():
                 # Leak node pressure
                 if leak_idx is not None:
                     pL = float(self.epnet.ENgetnodevalue(leak_idx, self._EN("PRESSURE")))
+                    dL = float(self.epnet.ENgetnodevalue(leak_idx, self._EN("DEMAND")))
                     leak_press_series.append((int(t), pL))
+                    leak_demand_series.append((int(t), dL))
 
                 tstep = self.epnet.ENnextH()
                 if tstep <= 0:
@@ -211,6 +214,13 @@ class DataGenerator():
                 name="pressure",
                 dtype=float
             ).clip(lower=0.0)
+
+            leak_demand = pd.Series(
+                data=[d for _, d in leak_demand_series],
+                index=[t for t, _ in leak_demand_series],
+                name="demand",
+                dtype=float
+            ).clip(lower=0.0) 
 
             mask = (leak_press.index >= leak_start_s) & (leak_press.index < leak_end_s)
             if mask.any():
@@ -243,6 +253,7 @@ class DataGenerator():
 
             row["collection_start_hr"] = float(collection_start_hour)
             row["collection_duration_hr"] = float(self.TOTAL_HOURS)
+            row["leak_demand_time"] = leak_demand.to_dict()
 
             label_prefix = self.get_resolution_label(self.STEP_S // 60)
 
