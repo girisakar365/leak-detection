@@ -254,6 +254,7 @@ class DataGenerator():
             row["collection_start_hr"] = float(collection_start_hour)
             row["collection_duration_hr"] = float(self.TOTAL_HOURS)
             row["leak_demand_time"] = leak_demand.to_dict()
+            row["leak_pressure_time"] = leak_press.to_dict()
 
             label_prefix = self.get_resolution_label(self.STEP_S // 60)
 

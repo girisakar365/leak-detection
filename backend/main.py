@@ -188,7 +188,7 @@ async def generate_data(
             leak_duration_hours
         )
 
-        print("success ", data)
+        
 
         # #average_pressure.
         pressureColumns=[key for key in data.keys() if key.startswith("NODE")]
@@ -199,23 +199,12 @@ async def generate_data(
         data.update({"average_pressure": average_pressure})
 
         #pressure_history
-        label_prefix = gd.get_resolution_label(sample_minutes=sample_minutes)
-        pressure_history=[]
-        column_names=[]
-        for i in range(24):
-            column_names.append(f"{node_id}_{label_prefix}{i}")
-
-        for column in column_names:
-            pressure_history.append({
-                column: data[column]
-            })        
-
-        data.update({"pressure_history": pressure_history})
+        pressure_history_dic= data["leak_pressure_time"]
+        data.update({"pressure_history": pressure_history_dic})     
 
         #demand_history
         demand_dic= data["leak_demand_time"]
         data.update({"demand_history": demand_dic})
-
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating data: {str(e)}")
