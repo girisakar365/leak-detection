@@ -9,10 +9,12 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional
 import uvicorn
 from datetime import datetime
-import random
 
-from epanet_parser import EPANETParser
-from leak_detector import LeakDetector
+from pathlib import Path
+
+from .epanet_parser import EPANETParser
+from .leak_detector import LeakDetector
+from .generate_data import DataGenerator
 
 app = FastAPI(
     title="Water Supply Leak Detection API",
@@ -30,7 +32,7 @@ app.add_middleware(
 )
 
 # Initialize EPANET parser and leak detector
-parser = EPANETParser("../PATTERN.inp")
+parser = EPANETParser("main_network.inp")
 leak_detector = LeakDetector()
 
 
@@ -40,9 +42,6 @@ class Node(BaseModel):
     type: str  # junction, reservoir, tank
     coordinates: Dict[str, float]
     elevation: Optional[float] = None
-    leak_risk: str  # "none", "low", "medium", "high"
-    risk_score: float  # 0-100
-
 
 class Pipe(BaseModel):
     id: str
@@ -52,18 +51,19 @@ class Pipe(BaseModel):
     diameter: float
     status: str  # "active", "closed"
 
-
 class NetworkData(BaseModel):
     nodes: List[Node]
     pipes: List[Pipe]
+    total_nodes: int
+    total_pipes: int
     timestamp: str
+    system_status: str
 
 
 class PressureData(BaseModel):
     timestamp: str
     node_id: str
     pressure: float
-
 
 class DemandData(BaseModel):
     node_id: str
@@ -74,8 +74,6 @@ class DemandData(BaseModel):
 
 class LeakPrediction(BaseModel):
     node_id: str
-    leak_probability: float
-    risk_level: str
     affected_nodes: List[str]
     timestamp: str
 
@@ -101,6 +99,9 @@ async def get_network_data():
         return NetworkData(
             nodes=network["nodes"],
             pipes=network["pipes"],
+            total_nodes=len(network["nodes"]),
+            total_pipes=len(network["pipes"]),
+            system_status = "operational",
             timestamp=datetime.now().isoformat()
         )
     except Exception as e:
@@ -108,75 +109,113 @@ async def get_network_data():
 
 
 @app.get("/api/leak-predictions", response_model=List[LeakPrediction])
-async def get_leak_predictions(csv_path:str):
+async def get_leak_predictions():
     """
     Get real-time leak predictions for all nodes
     Returns nodes with leak probability and risk levels
     """
     try:
-        predictions = leak_detector.get_predictions(csv_path)
+        predictions = leak_detector.get_predictions("./backend/generated_data.csv")
         return predictions
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting predictions: {str(e)}")
 
 
-@app.get("/api/pressure-data/{node_id}")
-async def get_pressure_data(node_id: str, hours: int = 24):
-    """
-    Get historical pressure data for a specific node
-    Args:
-        node_id: Node identifier
-    """
-    try:
-        data = leak_detector.get_pressure_history(node_id)
-        return {
-            "node_id": node_id,
-            "data": data,
-            "unit": "psi"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting pressure data: {str(e)}")
+# @app.get("/api/pressure-data/{node_id}")
+# async def get_pressure_data(node_id: str, hours: int = 24):
+#     """
+#     Get historical pressure data for a specific node
+#     Args:
+#         node_id: Node identifier
+#         hours: Number of hours of historical data (default: 24)
+#     """
+#     try:
+#         data = leak_detector.get_pressure_history(node_id, hours)
+#         return {
+#             "node_id": node_id,
+#             "data": data,
+#             "unit": "psi"
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error getting pressure data: {str(e)}")
 
 
-@app.get("/api/demand-data/{node_id}")
-async def get_demand_data():
+# @app.get("/api/demand-data/{node_id}")
+# async def get_demand_data(node_id: str):
+#     """
+#     Get base demand vs actual demand comparison for a node
+#     """
+#     try:
+#         data = leak_detector.get_demand_comparison(node_id)
+#         return data
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error getting demand data: {str(e)}")
+
+# @app.get("/api/statistics")
+# async def get_statistics():
+#     """
+#     Get overall network statistics and summary
+#     """
+#     try:
+#         stats = leak_detector.get_network_statistics()
+#         return stats
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
+
+@app.get(f"/api/generate_data")
+async def generate_data(
+    node_id: str,
+    emitter_cof:float=0.5,
+    collection_start_hour:int=6,
+    leak_start_min:int=60,
+    leak_duration_hours:int=4
+):
     """
-    Get base demand vs actual demand comparison for a node
+    Generate simulated data for testing purposes
     """
     try:
-        data = leak_detector.get_demand_comparison()
+        total_pressure = 0
+        sample_minutes = 15
+        sample_duration_hours = 6
+        inp_path = Path(__file__).parent / "main_network.inp"
+        gd = DataGenerator(inp_file = str(inp_path), step_m=sample_minutes, duration_h=sample_duration_hours)
+        data = gd.generate_data(
+
+            node_id,
+            emitter_cof,
+            collection_start_hour,
+            leak_start_min,
+            leak_duration_hours
+        )
+
+        # #average_pressure.
+        pressureColumns=[key for key in data.keys() if key.startswith("NODE")]
+        for column in pressureColumns:
+            total_pressure = data[column] + total_pressure
+        average_pressure = total_pressure / len(pressureColumns)
+
+        data.update({"average_pressure": average_pressure})
+
+        # #pressure_history
+        # label_prefix = gd.get_resolution_label(sample_minutes=sample_minutes)
+        # pressure_history=[]
+        # column_names=[]
+        # for i in range(int(sample_minutes*60/sample_duration_hours)):
+        #     column_names.append(f"{node_id}_{label_prefix}{i}")
+
+        # for column in column_names:
+        #     pressure_history.append({
+        #         column: data[column]
+        #     })        
+
+        # data.update({"pressure_history": pressure_history})
+
+        #demand_history
+
+
         return data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting demand data: {str(e)}")
-
-
-@app.get("/api/affected-nodes/{node_id}")
-async def get_affected_nodes(node_id: str):
-    """
-    Get list of nodes that would be affected if specified node has a leak
-    """
-    try:
-        affected = parser.get_affected_nodes(node_id)
-        return {
-            "source_node": node_id,
-            "affected_nodes": affected,
-            "count": len(affected)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error calculating affected nodes: {str(e)}")
-
-
-@app.get("/api/average-pressure")
-async def get_average_pressure():
-    """
-    Get overall network statistics and summary
-    """
-    try:
-        stats = leak_detector.get_average_pressure()
-        return stats
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Error generating data: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(

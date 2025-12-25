@@ -266,6 +266,7 @@ class DataGenerator():
                         row[f"{nid}_{label_prefix}{k}"] = ""
             
             csv_data_path = Path(__file__).parent / "generated_data.csv"
+            interval_press.to_csv(csv_data_path)
             return row
 
 if __name__ == "__main__":
