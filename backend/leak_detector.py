@@ -7,7 +7,10 @@ import random
 from datetime import datetime, timedelta
 from typing import List, Dict
 from generate_data import DataGenerator
+from run_model import PredictLeakLocation
 import math
+import pandas as pd
+
 
 sample_minutes = 15
 sample_duration_hours = 6
@@ -27,6 +30,8 @@ for column in pressureColumns:
     total_pressure = generated_data[column] + total_pressure
 average_pressure = total_pressure / len(pressureColumns)
 
+Localizer = PredictLeakLocation()
+
 class LeakDetector:
     """
     Leak detection system that integrates with trained ML model
@@ -38,40 +43,12 @@ class LeakDetector:
         # In production, load your trained model here
         # self.model = load_model('path_to_model')
     
-    def get_predictions(self) -> List[Dict]:
+    def get_predictions(self,csv_path:str) -> Dict:
         """
         Get leak predictions for all nodes
         Replace with actual model predictions
         """
-        predictions = []
-        
-        # Simulate predictions for demonstration
-        # In production, this would call your trained model
-        node_ids = [f"J{i}" for i in range(1, 11)]
-        
-        for node_id in node_ids:
-            probability = random.uniform(0, 1)
-            
-            if probability > 0.7:
-                risk_level = "high"
-            elif probability > 0.4:
-                risk_level = "medium"
-            elif probability > 0.2:
-                risk_level = "low"
-            else:
-                risk_level = "none"
-            
-            # Simulate affected nodes
-            affected_count = random.randint(0, 5) if probability > 0.3 else 0
-            affected_nodes = [f"J{random.randint(1, 10)}" for _ in range(affected_count)]
-            
-            predictions.append({
-                "node_id": node_id,
-                "leak_probability": round(probability * 100, 2),
-                "risk_level": risk_level,
-                "affected_nodes": affected_nodes,
-                "timestamp": datetime.now().isoformat()
-            })
+        predictions=Localizer.run_test_cases(model_path="model/leak_model.pth",test_csv=csv_path)
         
         return predictions
     
@@ -102,14 +79,10 @@ class LeakDetector:
         return demand_dic
     
     
-    def get_network_statistics(self) -> Dict:
+    def get_average_pressure(self) -> Dict:
         """
         Get overall network statistics
         """
         return {
-            "total_nodes": random.randint(50, 200),
-            "active_pipes": random.randint(80, 300),
             "average_pressure": average_pressure,
-            "last_updated": datetime.now().isoformat(),
-            "system_status": "operational"
         }

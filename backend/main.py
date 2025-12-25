@@ -108,13 +108,13 @@ async def get_network_data():
 
 
 @app.get("/api/leak-predictions", response_model=List[LeakPrediction])
-async def get_leak_predictions():
+async def get_leak_predictions(csv_path:str):
     """
     Get real-time leak predictions for all nodes
     Returns nodes with leak probability and risk levels
     """
     try:
-        predictions = leak_detector.get_predictions()
+        predictions = leak_detector.get_predictions(csv_path)
         return predictions
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting predictions: {str(e)}")
@@ -126,10 +126,9 @@ async def get_pressure_data(node_id: str, hours: int = 24):
     Get historical pressure data for a specific node
     Args:
         node_id: Node identifier
-        hours: Number of hours of historical data (default: 24)
     """
     try:
-        data = leak_detector.get_pressure_history(node_id, hours)
+        data = leak_detector.get_pressure_history(node_id)
         return {
             "node_id": node_id,
             "data": data,
@@ -140,12 +139,12 @@ async def get_pressure_data(node_id: str, hours: int = 24):
 
 
 @app.get("/api/demand-data/{node_id}")
-async def get_demand_data(node_id: str):
+async def get_demand_data():
     """
     Get base demand vs actual demand comparison for a node
     """
     try:
-        data = leak_detector.get_demand_comparison(node_id)
+        data = leak_detector.get_demand_comparison()
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting demand data: {str(e)}")
@@ -167,13 +166,13 @@ async def get_affected_nodes(node_id: str):
         raise HTTPException(status_code=500, detail=f"Error calculating affected nodes: {str(e)}")
 
 
-@app.get("/api/statistics")
-async def get_statistics():
+@app.get("/api/average-pressure")
+async def get_average_pressure():
     """
     Get overall network statistics and summary
     """
     try:
-        stats = leak_detector.get_network_statistics()
+        stats = leak_detector.get_average_pressure()
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting statistics: {str(e)}")
