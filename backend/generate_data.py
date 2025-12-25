@@ -116,7 +116,7 @@ class DataGenerator():
         leak_start_s = int(round(collection_start_s + float(leak_start_min) * 60.0))
         leak_end_s = int(leak_start_s + float(leak_duration_hours) * 3600)
         
-        node.emitter_coefficient = 0.0
+        node.emitter_coefficient = 0.0 # type: ignore
 
         try:
             # Map node names -> EPANET indices
@@ -275,10 +275,11 @@ if __name__ == "__main__":
     gd = DataGenerator(inp_file ="PATTERN.inp", step_m=15, duration_h=6)
 
     aa = gd.generate_data(
-        "NODE_467",
+        "NODE_361",
         emitter_cof=0.5,
         collection_start_hour=6,
         leak_start_min=60,
         leak_duration_hours=4
     )
+    print(aa)
 

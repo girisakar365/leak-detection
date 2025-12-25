@@ -31,7 +31,7 @@ class LeakDetector:
         Replace with actual model predictions
         """
         predictions=Localizer.run_test_cases(model_path="./backend/model/leak_model.pth",test_csv=csv_path)
-        
+        print("Success",predictions)
         return predictions
     
     # def get_pressure_history(self, node_id: str, hours: int = 24) -> List[Dict]:

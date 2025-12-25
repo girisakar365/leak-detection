@@ -73,9 +73,9 @@ class DemandData(BaseModel):
 
 
 class LeakPrediction(BaseModel):
-    node_id: str
-    affected_nodes: List[str]
-    timestamp: str
+    leak_x: List[float]
+    leak_y: List[float]
+    leak_size_lps: List[float]
 
 
 @app.get("/")
@@ -108,7 +108,7 @@ async def get_network_data():
         raise HTTPException(status_code=500, detail=f"Error loading network data: {str(e)}")
 
 
-@app.get("/api/leak-predictions", response_model=List[LeakPrediction])
+@app.get("/api/leak-predictions", response_model=LeakPrediction)
 async def get_leak_predictions():
     """
     Get real-time leak predictions for all nodes
@@ -177,7 +177,7 @@ async def generate_data(
         total_pressure = 0
         sample_minutes = 60
         sample_duration_hours = 24
-        inp_path = Path(__file__).parent / "main_network.inp"
+        inp_path = Path(__file__).parent / "PATTERN.inp"
         gd = DataGenerator(inp_file = str(inp_path), step_m=sample_minutes, duration_h=sample_duration_hours)
         data = gd.generate_data(
 
@@ -196,22 +196,23 @@ async def generate_data(
 
         data.update({"average_pressure": average_pressure})
 
-        # #pressure_history
-        # label_prefix = gd.get_resolution_label(sample_minutes=sample_minutes)
-        # pressure_history=[]
-        # column_names=[]
-        # for i in range(int(sample_minutes*60/sample_duration_hours)):
-        #     column_names.append(f"{node_id}_{label_prefix}{i}")
+        #pressure_history
+        label_prefix = gd.get_resolution_label(sample_minutes=sample_minutes)
+        pressure_history=[]
+        column_names=[]
+        for i in range(24):
+            column_names.append(f"{node_id}_{label_prefix}{i}")
 
-        # for column in column_names:
-        #     pressure_history.append({
-        #         column: data[column]
-        #     })        
+        for column in column_names:
+            pressure_history.append({
+                column: data[column]
+            })        
 
-        # data.update({"pressure_history": pressure_history})
+        data.update({"pressure_history": pressure_history})
 
         #demand_history
-
+        demand_dic= data["leak_demand_time"]
+        data.update({"demand_history": demand_dic})
 
         return data
     except Exception as e:
