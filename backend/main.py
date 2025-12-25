@@ -32,7 +32,7 @@ app.add_middleware(
 )
 
 # Initialize EPANET parser and leak detector
-parser = EPANETParser("main_network.inp")
+parser = EPANETParser("./backend/main_network.inp")
 leak_detector = LeakDetector()
 
 
@@ -177,7 +177,7 @@ async def generate_data(
         total_pressure = 0
         sample_minutes = 60
         sample_duration_hours = 24
-        inp_path = Path(__file__).parent / "PATTERN.inp"
+        inp_path = Path(__file__).parent / "main_network.inp"
         gd = DataGenerator(inp_file = str(inp_path), step_m=sample_minutes, duration_h=sample_duration_hours)
         data = gd.generate_data(
 
@@ -187,6 +187,8 @@ async def generate_data(
             leak_start_min,
             leak_duration_hours
         )
+
+        print("success ", data)
 
         # #average_pressure.
         pressureColumns=[key for key in data.keys() if key.startswith("NODE")]
