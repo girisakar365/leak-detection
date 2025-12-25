@@ -11,6 +11,13 @@ from wntr.epanet.util import EN
 EPANET_OUT_DIR = Path("epanet_runs")
 EPANET_OUT_DIR.mkdir(exist_ok=True)
 
+RESOLUTION_MAP = {
+    10: "TenMin",
+    15: "QuarterHour",
+    30: "HalfHour",
+    60: "Hour"
+}
+
 OBS_NODES=[
     "NODE_1383","NODE_319", "NODE_9014", "NODE_434",
     "NODE_1119", "NODE_657", "NODEIN_3801", 
@@ -22,18 +29,21 @@ OBS_NODES=[
 ]
 
 class DataGenerator():
-    def __init__(self, inp_file: str):
+    def __init__(self, inp_file: str,step_m: int = 10,duration_h: int = 24):
         self.inp_file = inp_file
         self.wn = wntr.network.WaterNetworkModel(self.inp_file)
+        self.wn.options.hydraulic.emitter_exponent = float(1.0)
         
         # CONSTANTS
-        self.STEP_S = 600  # simulation time step in seconds
-        self.wn.options.time.duration = 86400  # total simulation duration in seconds (24 hours)
+        self.STEP_S = step_m * 60  # simulation time step in seconds
+        self.wn.options.time.duration = duration_h * 3600  # total simulation duration in seconds
         self.wn.options.time.hydraulic_timestep = self.STEP_S
         self.wn.options.time.report_timestep = self.STEP_S
         self.wn.options.time.report_start = 0
-        self.TOTAL_HOURS  = 24  # total hours of data to generate
+        self.TOTAL_HOURS  = duration_h  # total hours of data to generate
         self.EMITTER_EXP = 1.0
+        
+        self.total_steps= (self.TOTAL_HOURS * 3600) // self.STEP_S
 
         # Write a clean INP for EPANET engine
         inp_tmp = EPANET_OUT_DIR / "tmp.inp"
@@ -44,6 +54,9 @@ class DataGenerator():
         self.epnet = ENepanet()
         self.epnet.ENopen(str(inp_tmp), str(rpt_tmp), str(out_tmp))
 
+    def get_resolution_label(self,sample_minutes: int) -> str:
+        return RESOLUTION_MAP.get(sample_minutes, f"Min{sample_minutes}")
+    
     def _get_flow_unit(self) -> str | None:
         hyd = getattr(self.wn.options, "hydraulic", None)
         for attr in ("inpfile_units", "units", "flow_units"):
@@ -89,15 +102,18 @@ class DataGenerator():
     def generate_data(self,
         leak_node:str,
         emitter_cof:float,
-        leak_start_hour:int,
+        collection_start_hour:int,
+        leak_start_min:int,
         leak_duration_hours:int
     ):
-        
+        collection_start_s = int(round(collection_start_hour * 3600.0))
+        collection_end_s = int(round(collection_start_hour + self.TOTAL_HOURS) * 3600.0)
+
         node = self.wn.get_node(leak_node)
         if getattr(node, "coordinates", None) is not None:
             leak_x, leak_y = node.coordinates
 
-        leak_start_s = int(float(leak_start_hour) * 3600)
+        leak_start_s = int(round(collection_start_s + float(leak_start_min) * 60.0))
         leak_end_s = int(leak_start_s + float(leak_duration_hours) * 3600)
         
         node.emitter_coefficient = 0.0
@@ -115,7 +131,7 @@ class DataGenerator():
                 self.epnet.ENsetnodevalue(leak_idx, self._EN("EMITTER"), 0.0)
 
             # Force EPANET engine timesteps (don’t rely only on the INP)
-            self.epnet.ENsettimeparam(self._EN("DURATION"), self.TOTAL_HOURS * 24 * 3600)
+            self.epnet.ENsettimeparam(self._EN("DURATION"), int(collection_end_s))
             self.epnet.ENsettimeparam(self._EN("HYDSTEP"), self.STEP_S)
             self.epnet.ENsettimeparam(self._EN("REPORTSTEP"), self.STEP_S)
             self.epnet.ENsettimeparam(self._EN("REPORTSTART"), 0)    
@@ -134,7 +150,11 @@ class DataGenerator():
             t = 0
             started = False
             ended = False
+            step_index = 0
+
             while True:
+                t = self.epnet.ENrunH()  # current time (seconds)
+
                 # Toggle emitter exactly at the time
                 if leak_idx is not None:
                     if (not started) and (t >= leak_start_s):
@@ -144,22 +164,22 @@ class DataGenerator():
                         self.epnet.ENsetnodevalue(leak_idx, self._EN("EMITTER"), 0.0)
                         ended = True
 
-                t = self.epnet.ENrunH()  # current time (seconds)
+                # Read pressures for observation nodes if inside collection window
+                if collection_start_s <= t < collection_end_s:
+                    row = {}
+                    for n in OBS_NODES:
+                        p = self.epnet.ENgetnodevalue(node_index[n], self._EN("PRESSURE"))
+                        p = float(p)
 
-                # Read pressures for observation nodes
-                row = {}
-                for n in OBS_NODES:
-                    p = self.epnet.ENgetnodevalue(node_index[n], self._EN("PRESSURE"))
-                    p = float(p)
-
-                    if not math.isfinite(p):
-                        fail_time_s = int(t)
-                        fail_node = n
-                        print(f"[NONFINITE] t={fail_time_s}s node={fail_node} leak_node={leak_node} C={emitter_cof}")
-                        break
-                    row[n] = float(p)
-                pressures.append(row)
-                times.append(int(t))
+                        if not math.isfinite(p):
+                            fail_time_s = int(t)
+                            fail_node = n
+                            print(f"[NONFINITE] t={fail_time_s}s node={fail_node} leak_node={leak_node} C={emitter_cof}")
+                            break
+                        row[n] = float(p)
+                    pressures.append(row)
+                    times.append(step_index)
+                    step_index += 1
 
                 # Leak node pressure
                 if leak_idx is not None:
@@ -174,9 +194,7 @@ class DataGenerator():
         finally:
             self.epnet.ENclose()
 
-        minute_press = pd.DataFrame(pressures, index=pd.Index(times, name="time_s"))
-
-        hourly_press = self._aggregate_to_hourly(minute_press, total_hours=self.TOTAL_HOURS)
+        interval_press = pd.DataFrame(pressures, index=pd.Index(times, name="time_s"))
 
         # Leak size from emitter law (mean Q during leak window)
         leak_size_lps = ""
@@ -219,29 +237,36 @@ class DataGenerator():
                     "leak_size_lps": leak_size_lps,
                     "leak_node_pressure_head": leak_node_pressure_head,
                     "emitter_coeff": float(emitter_cof),
-                    "leak_start_hr": float(leak_start_hour),
+                    "leak_start_min": float(leak_start_min),
                     "leak_duration_hr": float(leak_duration_hours),
                 })
 
+            row["collection_start_hr"] = float(collection_start_hour)
+            row["collection_duration_hr"] = float(self.TOTAL_HOURS)
+
+            label_prefix = self.get_resolution_label(self.STEP_S // 60)
+
             for nid in OBS_NODES:
-                for h in range(self.TOTAL_HOURS):
-                    val = hourly_press.loc[h, nid]
-                    row[f"{nid}_Hour{h}"] = float(val) if pd.notna(val) else ""
+                for k in range(self.total_steps):
+                    if k < len(interval_press) and nid in interval_press.columns:
+                        val = interval_press.loc[k, nid]
+                        row[f"{nid}_{label_prefix}{k}"] = float(val) if pd.notna(val) else ""
+                    else:
+                        row[f"{nid}_{label_prefix}{k}"] = ""
             
             csv_data_path = Path(__file__).parent / "generated_data.csv"
-            df = pd.DataFrame([row])
-            df.to_csv(csv_data_path, index=False)
             return row
 
-inp_path = Path(__file__).parent
+if __name__ == "__main__":
+    inp_path = Path(__file__).parent
 
-gd = DataGenerator(inp_file = inp_path / "main_network.inp")
+    gd = DataGenerator(inp_file ="PATTERN.inp", step_m=15, duration_h=6)
 
-aa = gd.generate_data(
-    "NODE_467",
-    emitter_cof=0.5,
-    leak_start_hour=5,
-    leak_duration_hours=4
-)
+    aa = gd.generate_data(
+        "NODE_467",
+        emitter_cof=0.5,
+        collection_start_hour=6,
+        leak_start_min=60,
+        leak_duration_hours=4
+    )
 
-print(aa)
