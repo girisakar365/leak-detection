@@ -1,310 +1,171 @@
-import { useRef, useEffect, useState } from 'react';
-import './NetworkMap.css';
+import { useEffect } from 'react'
+import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, useMap } from 'react-leaflet'
+import L from 'leaflet'
 
-function NetworkMap({ networkData, selectedNode, onNodeSelect }) {
-  const canvasRef = useRef(null);
-  const [hoveredNode, setHoveredNode] = useState(null);
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  // Zoom limits
-  const MIN_SCALE = 0.2;
-  const MAX_SCALE = 40; // increased max zoom to allow much closer inspection
-  // Exponent controlling how fast node radius shrinks when zooming in.
-  // Higher value -> nodes shrink faster as scale increases.
-  const RADIUS_EXPONENT = 4; // increase from 2 to 3 for stronger shrink effect
+// Fix Leaflet default icon issue
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+})
 
+// Component to fit map bounds to network
+function FitBounds({ nodes }) {
+  const map = useMap()
+  
   useEffect(() => {
-    if (!networkData || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Set canvas size
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Apply transformations
-    ctx.save();
-    ctx.translate(offset.x, offset.y);
-    ctx.scale(scale, scale);
-
-    // Draw pipes first (so they're behind nodes)
-    drawPipes(ctx, networkData.pipes, networkData.nodes);
-
-    // Draw nodes
-    drawNodes(ctx, networkData.nodes);
-
-    ctx.restore();
-  }, [networkData, selectedNode, hoveredNode, scale, offset]);
-
-  // Set up wheel event listener with passive: false
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handleWheelEvent = (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setScale(prev => Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev * delta)));
-    };
-
-    canvas.addEventListener('wheel', handleWheelEvent, { passive: false });
-
-    return () => {
-      canvas.removeEventListener('wheel', handleWheelEvent, { passive: false });
-    };
-  }, []);
-
-  const drawPipes = (ctx, pipes, nodes) => {
-    const canvas = canvasRef.current;
-    const height = canvas ? canvas.height : 800;
-    
-    pipes.forEach(pipe => {
-      const fromNode = nodes.find(n => n.id === pipe.from_node);
-      const toNode = nodes.find(n => n.id === pipe.to_node);
-
-      if (!fromNode || !toNode) return;
-
-      // Invert Y coordinates
-      const fromY = height / scale - fromNode.coordinates.y;
-      const toY = height / scale - toNode.coordinates.y;
-
-      ctx.beginPath();
-      ctx.moveTo(fromNode.coordinates.x, fromY);
-      ctx.lineTo(toNode.coordinates.x, toY);
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    });
-  };
-
-  const drawNodes = (ctx, nodes) => {
-    const canvas = canvasRef.current;
-    const height = canvas ? canvas.height : 800;
-    
-    nodes.forEach(node => {
-      const x = node.coordinates.x;
-      // Invert Y coordinate
-      const y = height / scale - node.coordinates.y;
-      const isSelected = node.id === selectedNode;
-      const isHovered = node.id === hoveredNode;
-
-      // Make node radius shrink as we zoom in so pipes remain visible.
-      // World-space radius scales as base / (scale^2) so on-screen radius ~= base/scale.
-      // But cap the world radius so when zoomed OUT (scale < 1) nodes don't grow unbounded.
-      const baseRadius = isSelected ? 10 : 8;
-      const minWorldRadius = 2;
-      const maxWorldRadius = baseRadius; // don't allow world radius to exceed base radius on zoom out
-      // stronger shrink: divide by scale^RADIUS_EXPONENT
-      const computedRadius = baseRadius / Math.pow(scale, RADIUS_EXPONENT);
-      const worldRadius = Math.max(minWorldRadius, Math.min(maxWorldRadius, computedRadius));
-      const glowBase = 20;
-      const computedGlow = glowBase / Math.pow(scale, RADIUS_EXPONENT);
-      const worldGlow = Math.max(4, Math.min(glowBase, computedGlow));
-
-      // Node color based on risk level
-      let color = '#10b981'; // green (none/low)
-      if (node.leak_risk === 'high') color = '#ef4444';
-      else if (node.leak_risk === 'medium') color = '#f59e0b';
-      else if (node.leak_risk === 'low') color = '#eab308';
-
-      // Draw node glow for selected/hovered (use worldGlow)
-      if (isSelected || isHovered) {
-        ctx.beginPath();
-        ctx.arc(x, y, worldGlow, 0, Math.PI * 2);
-        ctx.fillStyle = `${color}40`;
-        ctx.fill();
+    if (nodes && nodes.length > 0) {
+      const bounds = nodes.map(node => [node.coordinates.lat, node.coordinates.lng])
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [50, 50] })
       }
-
-      // Draw node (use worldRadius so final pixel radius reduces as we zoom)
-      ctx.beginPath();
-      ctx.arc(x, y, worldRadius, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-
-      // Draw node border
-      ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.5)';
-      // Keep border thin in world units so it doesn't overpower pipes after scaling
-      // Also cap stroke width so it doesn't become huge when zoomed out
-      const strokeWidth = isSelected ? Math.max(1, 3 / (scale)) : Math.max(0.6, 2 / (scale));
-      ctx.lineWidth = Math.min(strokeWidth, 6);
-      ctx.stroke();
-
-      // Draw node label
-      if (isSelected || isHovered) {
-        ctx.fillStyle = '#ffffff';
-        // use world-space font size so labels scale with zoom naturally
-        ctx.font = `${Math.max(8, 12 / scale)}px Inter`;
-        ctx.textAlign = 'center';
-        ctx.fillText(node.id, x, y - (worldRadius + 8 / scale));
-        
-        // Draw risk level
-        ctx.font = `${Math.max(7, 10 / scale)}px Inter`;
-        ctx.fillStyle = color;
-        ctx.fillText(node.leak_risk.toUpperCase(), x, y + (worldRadius + 10 / scale));
-      }
-    });
-  };
-
-  const getNodeAtPosition = (x, y) => {
-    if (!networkData) return null;
-
-    const canvas = canvasRef.current;
-    const height = canvas ? canvas.height : 800;
-
-    // Transform coordinates
-    const transformedX = (x - offset.x) / scale;
-    const transformedY = (y - offset.y) / scale;
-
-    return networkData.nodes.find(node => {
-      // Invert Y coordinate for hit detection
-      const nodeY = height / scale - node.coordinates.y;
-      const dx = node.coordinates.x - transformedX;
-      const dy = nodeY - transformedY;
-      // compute world-space radius used when drawing (same formula and caps as above)
-      const baseRadiusNode = node.id === selectedNode ? 10 : 8;
-      const minWorldRadiusNode = 2;
-      const maxWorldRadiusNode = baseRadiusNode;
-      const nodeWorldRadius = Math.max(minWorldRadiusNode, Math.min(maxWorldRadiusNode, baseRadiusNode / (scale * scale)));
-      // hit threshold: use world radius plus a small buffer (in world units)
-      const hitThreshold = Math.max(8, nodeWorldRadius + 6);
-      return Math.sqrt(dx * dx + dy * dy) < hitThreshold;
-    }) || null;
-  };
-
-  const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    if (isDragging) {
-      setOffset({
-        x: x - dragStart.x,
-        y: y - dragStart.y,
-      });
-      return;
     }
-
-    const node = getNodeAtPosition(x, y);
-    setHoveredNode(node ? node.id : null);
-    canvas.style.cursor = node ? 'pointer' : 'grab';
-  };
-
-  const handleMouseDown = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const node = getNodeAtPosition(x, y);
-    if (node) {
-      onNodeSelect(node.id);
-      return;
-    }
-
-    setIsDragging(true);
-    setDragStart({
-      x: x - offset.x,
-      y: y - offset.y,
-    });
-    canvas.style.cursor = 'grabbing';
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    if (canvasRef.current) {
-      canvasRef.current.style.cursor = hoveredNode ? 'pointer' : 'grab';
-    }
-  };
-
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setScale(prev => Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev * delta)));
-  };
-
-  const handleReset = () => {
-    setScale(1);
-    setOffset({ x: 0, y: 0 });
-  };
-
-  const handleMouseEnter = () => {
-    // Disable page scroll when mouse enters canvas
-    document.body.style.overflow = 'hidden';
-  };
-
-  const handleMouseLeaveCanvas = () => {
-    // Re-enable page scroll when mouse leaves canvas
-    document.body.style.overflow = 'auto';
-  };
-
-  return (
-    <div className="network-map">
-      <div className="map-header">
-        <h3>Water Supply Network Map</h3>
-        <div className="map-controls">
-          <button className="btn btn-secondary" onClick={() => setScale(s => Math.min(MAX_SCALE, s * 1.3))}>
-            Zoom In
-          </button>
-          <button className="btn btn-secondary" onClick={() => setScale(s => Math.max(MIN_SCALE, s * 0.8))}>
-            Zoom Out
-          </button>
-          <button className="btn btn-secondary" onClick={handleReset}>
-            Reset View
-          </button>
-        </div>
-      </div>
-
-      <div className="map-legend">
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#ef4444' }}></span>
-          <span>High Risk</span>
-        </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#f59e0b' }}></span>
-          <span>Medium Risk</span>
-        </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#eab308' }}></span>
-          <span>Low Risk</span>
-        </div>
-        <div className="legend-item">
-          <span className="legend-dot" style={{ background: '#10b981' }}></span>
-          <span>No Risk</span>
-        </div>
-      </div>
-
-      <canvas
-        ref={canvasRef}
-        className="map-canvas"
-        onMouseMove={handleMouseMove}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={(e) => {
-          handleMouseUp(e);
-          handleMouseLeaveCanvas();
-        }}
-      />
-
-      {selectedNode && (
-        <div className="selected-node-info">
-          <strong>Selected Node:</strong> {selectedNode}
-        </div>
-      )}
-    </div>
-  );
+  }, [nodes, map])
+  
+  return null
 }
 
-export default NetworkMap;
+// Node colors based on type
+const getNodeColor = (type, isObservation = false) => {
+  if (isObservation) return '#000000' // Black for observation nodes
+  switch (type) {
+    case 'reservoir': return '#1e7b34' // Dark green
+    case 'tank': return '#b8860b' // Dark goldenrod/mustard
+    default: return '#00bcd4' // Cyan/Teal for junctions - brighter and visible
+  }
+}
+
+// Node radius based on type
+const getNodeRadius = (type, isObservation = false) => {
+  if (isObservation) return 8
+  switch (type) {
+    case 'reservoir': return 10
+    case 'tank': return 9
+    default: return 5
+  }
+}
+
+export default function NetworkMap({ 
+  nodes = [], 
+  pipes = [], 
+  observationNodes = [],
+  onNodeClick,
+  selectedNode,
+  showPopup = true
+}) {
+  // Default center: Kathmandu Valley
+  const defaultCenter = [27.7172, 85.3240]
+  const defaultZoom = 14
+  
+  // Create a Set of observation node IDs for quick lookup
+  const obsNodeIds = new Set(observationNodes.map(n => n.id))
+  
+  // Build node lookup for pipe rendering
+  const nodeMap = {}
+  nodes.forEach(node => {
+    nodeMap[node.id] = node
+  })
+  
+  // Generate pipe coordinates
+  const pipeLines = pipes.map(pipe => {
+    const fromNode = nodeMap[pipe.from_node]
+    const toNode = nodeMap[pipe.to_node]
+    
+    if (fromNode && toNode) {
+      return {
+        id: pipe.id,
+        positions: [
+          [fromNode.coordinates.lat, fromNode.coordinates.lng],
+          [toNode.coordinates.lat, toNode.coordinates.lng]
+        ],
+        ...pipe
+      }
+    }
+    return null
+  }).filter(Boolean)
+  
+  return (
+    <MapContainer
+      center={defaultCenter}
+      zoom={defaultZoom}
+      style={{ height: 'calc(100vh - 70px)', width: '100%', position: 'absolute', top: 0, left: 0 }}
+      scrollWheelZoom={true}
+    >
+      {/* OpenStreetMap 2D Tile Layer */}
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      
+      {/* Fit bounds to network */}
+      <FitBounds nodes={nodes} />
+      
+      {/* Render pipes as polylines */}
+      {pipeLines.map(pipe => (
+        <Polyline
+          key={pipe.id}
+          positions={pipe.positions}
+          pathOptions={{
+            color: '#4a90d9',
+            weight: 2,
+            opacity: 0.7
+          }}
+        />
+      ))}
+      
+      {/* Render all nodes */}
+      {nodes.map(node => {
+        const isObs = obsNodeIds.has(node.id)
+        const isSelected = selectedNode?.id === node.id
+        const isJunction = node.type === 'junction'
+        const isClickable = isObs || isJunction // Both sensor nodes and junctions are clickable
+        
+        // Determine the display type label
+        const getTypeLabel = () => {
+          if (isObs) return 'Sensor Node'
+          switch (node.type) {
+            case 'reservoir': return 'Reservoir'
+            case 'tank': return 'Tank'
+            default: return 'Junction'
+          }
+        }
+        
+        return (
+          <CircleMarker
+            key={node.id}
+            center={[node.coordinates.lat, node.coordinates.lng]}
+            radius={isSelected ? getNodeRadius(node.type, isObs) + 3 : getNodeRadius(node.type, isObs)}
+            pathOptions={{
+              color: isSelected ? '#e53e3e' : getNodeColor(node.type, isObs),
+              fillColor: isSelected ? '#e53e3e' : getNodeColor(node.type, isObs),
+              fillOpacity: isObs ? 0.8 : 0.5,
+              weight: isObs ? 2 : 1
+            }}
+            eventHandlers={{
+              click: () => {
+                if (isClickable && onNodeClick) {
+                  onNodeClick(node)
+                }
+              }
+            }}
+          >
+            {showPopup && isClickable && (
+              <Popup>
+                <div style={{ minWidth: '150px' }}>
+                  <strong>{node.id}</strong>
+                  <br />
+                  <small>Type: {getTypeLabel()}</small>
+                  <br />
+                  <small>Elevation: {node.elevation?.toFixed(2)}m</small>
+                  <br />
+                  <small style={{ color: '#3182ce', cursor: 'pointer' }}>Click to simulate leak</small>
+                </div>
+              </Popup>
+            )}
+          </CircleMarker>
+        )
+      })}
+    </MapContainer>
+  )
+}
